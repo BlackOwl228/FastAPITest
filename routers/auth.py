@@ -1,6 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, Form
+from fastapi import APIRouter, HTTPException, Form
 from datetime import datetime, timedelta
-import sqlite3
 import uuid
 from database import get_db
 
@@ -30,3 +29,9 @@ def login_user(username: str,
                     VALUES(?, ?, ?)''', (session_id, user_id, expires_at))
         
     return {"session_id": session_id, "expires_at": expires_at.isoformat()}
+
+@router.post("/logout")
+def logout_user(session_id: str):
+    with get_db() as cursor:
+        cursor.execute('''DELETE FROM sessions WHERE session_id = ?''', (session_id,))
+    return {"status": "Session deleted"}
