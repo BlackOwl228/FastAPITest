@@ -1,37 +1,44 @@
-from fastapi import APIRouter, HTTPException, Form
+from fastapi import APIRouter, HTTPException, Depends, Form
+from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import uuid
-from database import get_db
+from db_orm import get_db, get_current_user
+from models import User, UserSession
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/reg")
 def registration_user(username: str,
-                      password: str):
-    with get_db() as cursor:
-        cursor.execute('''INSERT INTO users(username, password_hash)
-                    VALUES (%s,%s)''', (username, password))
+                      password: str,
+                      db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.username == username).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    new_user = User(username = username, password_hash = password)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
         
-    return {"status": "User created"}
+    return {"status": "User created", "user_id": new_user.id}
 
 @router.post("/login")
 def login_user(username: str,
-               password: str):
-    with get_db() as cursor:
-        cursor.execute('''SELECT id FROM users
-                    WHERE username = %s AND password_hash = %s''', (username, password))
+               password: str,
+               db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == username, User.password_hash == password).first()
+    if user:
+        session = UserSession(session_id = uuid.uuid4().hex,
+                              user_id = user.id,
+                              expires_at = datetime.now() + timedelta(hours=24))
+        db.add(session)
+        db.commit()
         
-        user_id = cursor.fetchone()[0]
-        session_id = uuid.uuid4().hex
-        expires_at = datetime.now() + timedelta(hours=24)
-
-        cursor.execute(f'''INSERT INTO sessions (session_id, user_id, expires_at)
-                    VALUES(%s, %s, %s)''', (session_id, user_id, expires_at))
-        
-    return {"session_id": session_id, "expires_at": expires_at.isoformat()}
+        return {"session_id": session.session_id, "expires_at": session.expires_at.isoformat()}
+    else: HTTPException(status_code=404, detail="Wrong username or password")
 
 @router.post("/logout")
-def logout_user(session_id: str):
-    with get_db() as cursor:
-        cursor.execute('''DELETE FROM sessions WHERE session_id = %s''', (session_id,))
-    return {"status": "Session deleted"}
+def logout_user(session: UserSession = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    db.delete(session)
+    db.commit()

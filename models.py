@@ -46,10 +46,10 @@ class User(Base):
     password_hash = Column(String(128), nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
 
-    sessions = relationship("Session", back_populates="user")
+    sessions = relationship("UserSession", back_populates="user")
     photos = relationship("Photo", back_populates="creator")
 
-class Session(Base):
+class UserSession(Base):
     __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True)

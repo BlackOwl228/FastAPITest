@@ -1,61 +1,93 @@
-from fastapi import APIRouter, UploadFile, HTTPException, Form, File
-from typing import List
-import uuid 
-from database import get_db
+from fastapi import APIRouter, UploadFile, HTTPException, Form, File, Depends, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+import uuid, datetime, os
+from db_orm import get_db, get_current_user
+from models import Tag, Photo, UserSession
 
 router = APIRouter(tags=["Private"])
 
 @router.post('/photos')
-def upload_photo(name: str = Form(...),
-                tags: List[str] = Form(...),
-                photo: UploadFile = File(...)):
-    
+def upload_photo(current_user: UserSession = Depends(get_current_user),
+                 title: str = Form(..., min_length=2, max_length=50),
+                 description: Optional[str] = Form("", max_length=500),
+                 is_public: bool = Form(True),
+                 tags: str = Form(""),
+                 photo: UploadFile = File(...),
+                 db: Session = Depends(get_db)):
+
     if not photo.content_type or not photo.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
-    
-    if isinstance(tags, str):
-        tags = [t.strip() for t in tags.replace(";", ",").split(",") if t.strip()]
-    if isinstance(tags, (list, tuple)):
-        out = []
-        for t in tags:
-            if isinstance(t, str):
-                out.extend([p.strip() for p in t.replace(";", ",").split(",") if p.strip()])
-        tags =  out
+    tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
      
     dir_path = "E:/MyProject/MySite/Photos"
-    
-
-    orig_ext = (photo.filename or "").split(".")[-1]
-    ext = orig_ext if orig_ext and len(orig_ext) <= 6 else "jpg"
-    file_path = f"{uuid.uuid4().hex}.{ext}"
-
-    full_path = f"{dir_path}/{file_path}"
+    filename = photo.filename or ""
+    ext = os.path.splitext(filename)[1]
+    if not ext or len(ext) > 5: ext = ".jpg"
+    else: ext = ext.lower()
+    file_path = f"{uuid.uuid4().hex}{ext}"
+    full_path = os.path.join(dir_path, file_path)
     with open(full_path, "wb") as f:
-        f.write(photo.file.read())    
-    
-    with get_db() as cursor:
-        cursor.execute('''INSERT INTO photos (name, filename)
-                        VALUES (%s, %s)
-                        ''', (name, file_path))
-        photo_id = cursor.fetchone()[0]
+        f.write(photo.file.read())
+
+
+    try:
+        new_photo = Photo(
+            title=title,
+            description=description,
+            filename=file_path,
+            creator_id=current_user.user_id,
+            is_public=is_public
+        )
+
+        existing_tags = {}
+        if tags:
+            existing = db.query(Tag).filter(Tag.name.in_(tags)).all()
+            existing_tags = {tag.name: tag for tag in existing}
+
+        for tag_name in tags:
+            tag = existing_tags.get(tag_name)
             
-        for tag in tags:
-            cursor.execute("SELECT id FROM tags WHERE name = %s", (tag,))
-            tag_id = cursor.fetchone()[0]
-                
-            cursor.execute("""INSERT INTO tags_of_photos (photo_id, tag_id) VALUES (%s, %s)""", (photo_id, tag_id))
+            if not tag:
+                tag = Tag(name=tag_name)
+                db.add(tag)
+                db.flush()
+                existing_tags[tag_name] = tag
 
-@router.delete('/photos')
-def delete_photos(session_id: str,
-                  photo_id: int):
-    with get_db() as cursor:
-        cursor.execute('''SELECT user_id FROM sessions
-                       WHERE session_id = %s''', (session_id,))
-        row = cursor.fetchone()
+            new_photo.tags.append(tag)
 
-        if not row: raise HTTPException(status_code=401, detail="Invalid session")
-        else: user_id = row[0]
+        db.add(new_photo)
+        db.commit()
+        db.refresh(new_photo)
+        
+        return {
+            "id": new_photo.id,
+            "filename": file_path,
+            "tags": tags,
+            "message": "Photo uploaded successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        if os.path.exists(full_path):
+            os.remove(full_path)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-        cursor.execute('''DELETE FROM photos
-                       WHERE id = %s AND creator_id = %s''', (photo_id, user_id))
-    return {"status": f"Photo id={photo_id} deleted"}
+@router.delete('/photos/{photo_id}')
+def delete_photos(photo_id: int,
+                  current_user: UserSession = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    photo = db.query(Photo).filter(
+    Photo.id == photo_id,
+    Photo.creator_id == current_user.user_id).first()
+
+    if photo:
+        file_path = f"E:/MyProject/MySite/Photos/{photo.filename}"
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        db.delete(photo)
+        db.commit()
+        
+        return {"status": f"Photo id={photo_id} deleted"}
+    else: raise HTTPException(404, "You can't delete this file")
