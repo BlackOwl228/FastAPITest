@@ -13,7 +13,7 @@ app.include_router(private.router)
 @app.get("/files/{filename}", tags=['Files'])
 def file_by_path(filename: str):
     try:
-        return FileResponse(f'E:/Web Project/Photos/{filename}')
+        return FileResponse(f'E:/MyProject/MySite/Photos/{filename}')
     except Exception as e:
         raise HTTPException(status_code=404, detail="File not found")
     

@@ -22,7 +22,7 @@ def upload_photo(name: str = Form(...),
                 out.extend([p.strip() for p in t.replace(";", ",").split(",") if p.strip()])
         tags =  out
      
-    dir_path = "E:/Web Project/photos"
+    dir_path = "E:/MyProject/MySite/Photos"
     
 
     orig_ext = (photo.filename or "").split(".")[-1]
@@ -34,26 +34,28 @@ def upload_photo(name: str = Form(...),
         f.write(photo.file.read())    
     
     with get_db() as cursor:
-        cursor.execute('''INSERT INTO photos (name, path)
-                        VALUES (?, ?)
+        cursor.execute('''INSERT INTO photos (name, filename)
+                        VALUES (%s, %s)
                         ''', (name, file_path))
-        photo_id = cursor.lastrowid
+        photo_id = cursor.fetchone()[0]
             
         for tag in tags:
-            cursor.execute("SELECT id FROM tags WHERE name = ?", (tag,))
+            cursor.execute("SELECT id FROM tags WHERE name = %s", (tag,))
             tag_id = cursor.fetchone()[0]
                 
-            cursor.execute("""INSERT INTO tags_of_photo (photo_id, tag_id) VALUES (?, ?)""", (photo_id, tag_id))
+            cursor.execute("""INSERT INTO tags_of_photos (photo_id, tag_id) VALUES (%s, %s)""", (photo_id, tag_id))
 
 @router.delete('/photos')
 def delete_photos(session_id: str,
                   photo_id: int):
     with get_db() as cursor:
         cursor.execute('''SELECT user_id FROM sessions
-                       WHERE session_id = ?''', (session_id,))
+                       WHERE session_id = %s''', (session_id,))
         row = cursor.fetchone()
+
         if not row: raise HTTPException(status_code=401, detail="Invalid session")
         else: user_id = row[0]
+
         cursor.execute('''DELETE FROM photos
-                       WHERE id = ? AND creator_id = ?''', (photo_id, user_id))
+                       WHERE id = %s AND creator_id = %s''', (photo_id, user_id))
     return {"status": f"Photo id={photo_id} deleted"}
