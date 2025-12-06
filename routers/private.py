@@ -4,22 +4,23 @@ from typing import List, Optional
 import uuid, datetime, os
 from db_orm import get_db, get_current_user
 from models import Tag, Photo, UserSession
+from schemas import PhotoMetadata
 
 router = APIRouter(tags=["Private"])
 
 @router.post('/photos')
-def upload_photo(current_user: UserSession = Depends(get_current_user),
-                 title: str = Form(..., min_length=2, max_length=50),
-                 description: Optional[str] = Form("", max_length=500),
-                 is_public: bool = Form(True),
-                 tags: str = Form(""),
+def upload_photo(metadata: PhotoMetadata = Form(...),
                  photo: UploadFile = File(...),
+                 current_user: UserSession = Depends(get_current_user),
                  db: Session = Depends(get_db)):
-
     if not photo.content_type or not photo.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
-    tags = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-     
+    
+    title = metadata.title
+    description = metadata.description or ""
+    tags = [t.strip() for t in metadata.tags.split(",") if t.strip()] if metadata.tags else []
+    is_public = metadata.is_public
+
     dir_path = "E:/MyProject/MySite/Photos"
     filename = photo.filename or ""
     ext = os.path.splitext(filename)[1]
@@ -29,7 +30,6 @@ def upload_photo(current_user: UserSession = Depends(get_current_user),
     full_path = os.path.join(dir_path, file_path)
     with open(full_path, "wb") as f:
         f.write(photo.file.read())
-
 
     try:
         new_photo = Photo(
@@ -57,7 +57,7 @@ def upload_photo(current_user: UserSession = Depends(get_current_user),
             new_photo.tags.append(tag)
 
         db.add(new_photo)
-        db.commit()
+        db.flush()
         db.refresh(new_photo)
         
         return {
@@ -68,15 +68,43 @@ def upload_photo(current_user: UserSession = Depends(get_current_user),
         }
         
     except Exception as e:
-        db.rollback()
         if os.path.exists(full_path):
             os.remove(full_path)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    
+@router.patch('/photos/{photo_id}')
+def edit_photo(photo_id: int,
+               metadata: PhotoMetadata,
+               current_user: UserSession = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    photo = db.query(Photo).filter(
+    Photo.id == photo_id,
+    Photo.creator_id == current_user.user_id).first()
+
+    if not photo:
+        raise HTTPException(status_code=404, detail="Фото не найдено")    
+    
+    title = metadata.title
+    description = metadata.description or ""
+    tags = [t.strip() for t in metadata.tags.split(",") if t.strip()] if metadata.tags else []
+    is_public = metadata.is_public
+    size = metadata.size
+    mime_type = metadata.mime_type
+
+    photo.title, photo.description, photo.is_public = title, description, is_public
+    photo.size, photo.mime_type = size, mime_type
+
+    photo.tags.clear()
+    for tag_name in tags:
+        tag = db.query(Tag).filter(Tag.name == tag_name).first()
+        photo.tags.append(tag)
+
+    return {"status": "Photo updated", "photo_id": photo.id}
 
 @router.delete('/photos/{photo_id}')
-def delete_photos(photo_id: int,
-                  current_user: UserSession = Depends(get_current_user),
-                  db: Session = Depends(get_db)):
+def delete_photo(photo_id: int,
+                 current_user: UserSession = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
     photo = db.query(Photo).filter(
     Photo.id == photo_id,
     Photo.creator_id == current_user.user_id).first()
@@ -85,9 +113,11 @@ def delete_photos(photo_id: int,
         file_path = f"E:/MyProject/MySite/Photos/{photo.filename}"
         if os.path.exists(file_path):
             os.remove(file_path)
+        else:
+            raise HTTPException(404, "File already deleted")
 
         db.delete(photo)
-        db.commit()
         
         return {"status": f"Photo id={photo_id} deleted"}
-    else: raise HTTPException(404, "You can't delete this file")
+    else:
+        raise HTTPException(404, "You can't delete this file")
