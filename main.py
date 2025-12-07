@@ -1,13 +1,14 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 import uvicorn
-from routers import photos, auth, private
+from routers import photos, auth, private, admin
 
 app  = FastAPI()
 
 app.include_router(photos.router)
 app.include_router(auth.router)
 app.include_router(private.router)
+app.include_router(admin.router)
 
 
 @app.get("/files/{filename}", tags=['Files'])

@@ -10,13 +10,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-import sys
-import os
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_dir = os.path.abspath(os.path.join(current_dir, ".."))
-sys.path.append(project_dir)
-from models import *
 from models import Base
 
 target_metadata = Base.metadata

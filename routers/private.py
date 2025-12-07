@@ -1,25 +1,24 @@
-from fastapi import APIRouter, UploadFile, HTTPException, Form, File, Depends, Query
+from fastapi import APIRouter, UploadFile, HTTPException, Form, File, Depends, Query, Path
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid, datetime, os
 from db_orm import get_db, get_current_user
-from models import Tag, Photo, UserSession
-from schemas import PhotoMetadata
+from models import Tag, Photo, UserSession, Album
 
 router = APIRouter(tags=["Private"])
 
 @router.post('/photos')
-def upload_photo(metadata: PhotoMetadata = Form(...),
+def upload_photo(title: str = Form(..., min_length=2, max_length=50),
+                 description: str = Form("", max_length=500),
+                 is_public: bool = Form(..., Optional=True),
+                 tags: str = Form(...),
+                 size: int = Form(None),
+                 mime_type: str = Form(None),
                  photo: UploadFile = File(...),
                  current_user: UserSession = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     if not photo.content_type or not photo.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
-    
-    title = metadata.title
-    description = metadata.description or ""
-    tags = [t.strip() for t in metadata.tags.split(",") if t.strip()] if metadata.tags else []
-    is_public = metadata.is_public
 
     dir_path = "E:/MyProject/MySite/Photos"
     filename = photo.filename or ""
@@ -40,21 +39,9 @@ def upload_photo(metadata: PhotoMetadata = Form(...),
             is_public=is_public
         )
 
-        existing_tags = {}
-        if tags:
-            existing = db.query(Tag).filter(Tag.name.in_(tags)).all()
-            existing_tags = {tag.name: tag for tag in existing}
-
-        for tag_name in tags:
-            tag = existing_tags.get(tag_name)
-            
-            if not tag:
-                tag = Tag(name=tag_name)
-                db.add(tag)
-                db.flush()
-                existing_tags[tag_name] = tag
-
-            new_photo.tags.append(tag)
+        db_tags = db.query(Tag).filter(Tag.name.in_(tags)).all()
+        found_names = {t.name for t in db_tags}
+        new_photo.tags.extend(db_tags)
 
         db.add(new_photo)
         db.flush()
@@ -73,8 +60,13 @@ def upload_photo(metadata: PhotoMetadata = Form(...),
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
 @router.patch('/photos/{photo_id}')
-def edit_photo(photo_id: int,
-               metadata: PhotoMetadata,
+def edit_photo(photo_id: int = Path(...),
+               title: str = Form(..., min_length=2, max_length=50),
+               description: str = Form("", max_length=500),
+               is_public: bool = Form(..., Optional=True),
+               tags: List[str] = Form([]),
+               size: int = Form(),
+               mime_type: str = Form(),
                current_user: UserSession = Depends(get_current_user),
                db: Session = Depends(get_db)):
     photo = db.query(Photo).filter(
@@ -82,27 +74,21 @@ def edit_photo(photo_id: int,
     Photo.creator_id == current_user.user_id).first()
 
     if not photo:
-        raise HTTPException(status_code=404, detail="Фото не найдено")    
-    
-    title = metadata.title
-    description = metadata.description or ""
-    tags = [t.strip() for t in metadata.tags.split(",") if t.strip()] if metadata.tags else []
-    is_public = metadata.is_public
-    size = metadata.size
-    mime_type = metadata.mime_type
+        raise HTTPException(status_code=404, detail="Photo not found")    
 
     photo.title, photo.description, photo.is_public = title, description, is_public
     photo.size, photo.mime_type = size, mime_type
 
-    photo.tags.clear()
-    for tag_name in tags:
-        tag = db.query(Tag).filter(Tag.name == tag_name).first()
-        photo.tags.append(tag)
+    if tags:
+        photo.tags.clear()
+        new_tags = db.query(Tag).filter(Tag.name.in_(tags)).all()
+        found_names = {t.name for t in new_tags}
+        photo.tags.extend(new_tags)
 
     return {"status": "Photo updated", "photo_id": photo.id}
 
 @router.delete('/photos/{photo_id}')
-def delete_photo(photo_id: int,
+def delete_photo(photo_id: int = Path(...),
                  current_user: UserSession = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     photo = db.query(Photo).filter(
@@ -110,14 +96,52 @@ def delete_photo(photo_id: int,
     Photo.creator_id == current_user.user_id).first()
 
     if photo:
-        file_path = f"E:/MyProject/MySite/Photos/{photo.filename}"
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        else:
-            raise HTTPException(404, "File already deleted")
-
-        db.delete(photo)
-        
-        return {"status": f"Photo id={photo_id} deleted"}
-    else:
         raise HTTPException(404, "You can't delete this file")
+    
+    file_path = f"E:/MyProject/MySite/Photos/{photo.filename}"
+    if os.path.exists(file_path):
+        os.remove(file_path)
+    else:
+        raise HTTPException(404, "File already deleted")
+
+    db.delete(photo)
+        
+    return {"status": f"Photo id={photo_id} deleted"}
+    
+@router.post('album/{album_id}')
+def add_photo_to_album(album_id: int = Path(...),
+                       photo_id: int = Query(...),
+                       current_user: UserSession = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    photo = db.query(Photo).filter(Photo.id == photo_id,
+            (Photo.creator_id == current_user.user_id) | (Photo.is_public == True)).first()
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    album = db.query(Album).filter(Album.id == album_id, Album.creator_id == current_user.user_id).first()
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+    
+    album.photos.append(photo)
+
+    return {"status": "Photo added to album", "album_id": album_id, "photo_id": photo.id}
+
+@router.delete('album/{album_id}')
+def add_photo_to_album(album_id: int = Path(...),
+                       photo_id: int = Query(...),
+                       current_user: UserSession = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    photo = db.query(Photo).filter(Photo.id == photo_id).first()
+    if not photo:
+        raise HTTPException(404, "Photo not found")
+    
+    album = db.query(Album).filter(Album.id == album_id, Album.creator_id == current_user.user_id).first()
+    if not album:
+        raise HTTPException(404, "Album not found")
+    
+    if photo in album.photos:
+        album.photos.remove(photo)
+    else:
+        raise HTTPException(404, "Photo not in album")
+
+    return {"status": "Photo added to album", "album_id": album_id, "photo_id": photo.id}

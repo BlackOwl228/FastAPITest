@@ -45,7 +45,7 @@ class Photo(Base):
 
     tags = relationship("Tag", secondary=tags_of_photos, back_populates="photos")
     creator = relationship("User", back_populates="photos")
-    album = relationship("Album", secondary=album_photos, back_populates="photos")
+    albums = relationship("Album", secondary=album_photos, back_populates="photos")
     liked_by = relationship("User", secondary=likes, back_populates="likes")
 
 class Tag(Base):
@@ -62,6 +62,8 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String(30), unique=True, nullable=False)
     password_hash = Column(String(128), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
 
     sessions = relationship("UserSession", back_populates="user")
@@ -73,7 +75,7 @@ class UserSession(Base):
     __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True)
-    session_id = Column(String(36), unique=True, nullable=False)
+    session_id = Column(String(64), unique=True, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)

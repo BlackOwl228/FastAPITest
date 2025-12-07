@@ -27,8 +27,8 @@ class PhotoMetadata(BaseModel):
     description: Optional[str] = Field("", max_length=500)
     is_public: bool = Field(True)
     tags: str = Field("")
-    size: Optional[int]
-    mime_type: Optional[str]
+    size: Optional[int] = Field(...)
+    mime_type: Optional[str] = Field(...)
 
 class UserAccountData(BaseModel):
     username: str = Field(..., min_length=5, max_length=30)
