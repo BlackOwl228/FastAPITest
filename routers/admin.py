@@ -6,7 +6,7 @@ import os
 
 router = APIRouter(tags=["Admin"], prefix="/admin")
 
-@router.post('/users/{user_id}')
+@router.patch('/users/{user_id}/ban')
 def ban_user(user_id: int = Path(...),
                      current_user: UserSession = Depends(get_admin),
                      db: Session = Depends(get_db)):
@@ -16,6 +16,19 @@ def ban_user(user_id: int = Path(...),
         raise HTTPException(404, "User doesn't exists")
 
     user.is_active = False
+        
+    return {"status": f"User {user_id} was banned"}
+
+@router.patch('/users/{user_id}/unban')
+def unban_user(user_id: int = Path(...),
+                     current_user: UserSession = Depends(get_admin),
+                     db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(404, "User doesn't exists")
+
+    user.is_active = True
         
     return {"status": f"User {user_id} was banned"}
 

@@ -91,7 +91,7 @@ class Album(Base):
     description = Column(Text, nullable=True)
     creator_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     is_public = Column(Boolean, default=True, nullable=False)
-    position = Column(Integer, default=1, nullable=False)
+    position = Column(Integer, default=1, nullable=False) #ХУЕТА ПОЛНАЯ
     photo_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

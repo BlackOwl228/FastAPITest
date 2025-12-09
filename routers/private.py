@@ -59,14 +59,12 @@ def upload_photo(title: str = Form(..., min_length=2, max_length=50),
             os.remove(full_path)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     
-@router.patch('/photos/{photo_id}')
+@router.put('/photos/{photo_id}')
 def edit_photo(photo_id: int = Path(...),
                title: str = Form(..., min_length=2, max_length=50),
                description: str = Form("", max_length=500),
                is_public: bool = Form(..., Optional=True),
                tags: List[str] = Form([]),
-               size: int = Form(),
-               mime_type: str = Form(),
                current_user: UserSession = Depends(get_current_user),
                db: Session = Depends(get_db)):
     photo = db.query(Photo).filter(
@@ -77,7 +75,6 @@ def edit_photo(photo_id: int = Path(...),
         raise HTTPException(status_code=404, detail="Photo not found")    
 
     photo.title, photo.description, photo.is_public = title, description, is_public
-    photo.size, photo.mime_type = size, mime_type
 
     if tags:
         photo.tags.clear()
@@ -108,40 +105,3 @@ def delete_photo(photo_id: int = Path(...),
         
     return {"status": f"Photo id={photo_id} deleted"}
     
-@router.post('album/{album_id}')
-def add_photo_to_album(album_id: int = Path(...),
-                       photo_id: int = Query(...),
-                       current_user: UserSession = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
-    photo = db.query(Photo).filter(Photo.id == photo_id,
-            (Photo.creator_id == current_user.user_id) | (Photo.is_public == True)).first()
-    if not photo:
-        raise HTTPException(status_code=404, detail="Photo not found")
-    
-    album = db.query(Album).filter(Album.id == album_id, Album.creator_id == current_user.user_id).first()
-    if not album:
-        raise HTTPException(status_code=404, detail="Album not found")
-    
-    album.photos.append(photo)
-
-    return {"status": "Photo added to album", "album_id": album_id, "photo_id": photo.id}
-
-@router.delete('album/{album_id}')
-def add_photo_to_album(album_id: int = Path(...),
-                       photo_id: int = Query(...),
-                       current_user: UserSession = Depends(get_current_user),
-                       db: Session = Depends(get_db)):
-    photo = db.query(Photo).filter(Photo.id == photo_id).first()
-    if not photo:
-        raise HTTPException(404, "Photo not found")
-    
-    album = db.query(Album).filter(Album.id == album_id, Album.creator_id == current_user.user_id).first()
-    if not album:
-        raise HTTPException(404, "Album not found")
-    
-    if photo in album.photos:
-        album.photos.remove(photo)
-    else:
-        raise HTTPException(404, "Photo not in album")
-
-    return {"status": "Photo added to album", "album_id": album_id, "photo_id": photo.id}
