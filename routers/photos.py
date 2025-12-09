@@ -1,84 +1,59 @@
-from fastapi import APIRouter, HTTPException, UploadFile, Depends, Query, File, Form
-from typing import List
-import sqlite3
-import uuid
-from database import get_db
+from fastapi import APIRouter, HTTPException, Depends, Query, Path
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from db_orm import get_db
+from schemas import SearchTag, SearchTags, PhotoResponse, PhotosResponse
+from models import Photo, Tag
+from typing import List, Optional
 
-router = APIRouter(prefix="/photos", tags=["Photos"])
+router = APIRouter(prefix="/photos", tags=["Searching"])
 
-@router.get('')
-def photo_by_tag(tag: str = Query(...)):
-    with get_db() as cursor:
-        cursor.execute('''SELECT p.path FROM photos p
-                    JOIN tags_of_photo tof ON tof.photo_id = p.id
-                    JOIN tags t ON tof.tag_id = t.id
-                    WHERE t.name = ?''', (tag,))
-        photos = [row[0] for row in cursor.fetchall()]
-
-    return {
-            "tag":tag,
-            "photos":photos,
-            "count":len(photos)
-            }
+@router.get('/search/{tag}')
+def photo_by_tag(tag: str = Path(..., min_length=3, max_length=30),
+                 page: int = Query(1, ge=1),
+                 limit: int = Query(20, ge=1, le=100),
+                 db: Session = Depends(get_db)):
     
+    tag_obj = db.query(Tag).filter(Tag.name == tag).first()
+    if not tag_obj:
+        raise HTTPException(status_code=404, detail=f"Tag '{tag}' not found")
+    
+    photos_found = (db.query(Photo.filename)
+                    .filter(Photo.tags.any(Tag.id == tag_obj.id))
+                    .order_by(Photo.created_at.desc())
+                    .limit(limit)
+                    .offset((page - 1) * limit)
+                    .all())
+    
+    return PhotoResponse(
+        tag=tag,
+        photos=[p.filename for p in photos_found],
+        count=len(photos_found))
+
 @router.get('/search')
-def photo_by_tags(tags: List[str] = Query(...)):
-    placeholder = ', '.join('?' for _ in tags)
-
-    with get_db() as cursor:
-        cursor.execute(f'''SELECT p.path,
-                        COUNT(tof.tag_id) as relevance_score
-                        FROM photos p
-                        JOIN tags_of_photo tof ON tof.photo_id = p.id
-                        JOIN tags t ON tof.tag_id = t.id
-                        WHERE t.name IN ({placeholder})
-                        GROUP BY p.id, p.path
-                        ORDER BY relevance_score DESC, p.id;''', tags)
-        photos = [row[0] for row in cursor.fetchall()]
-
-    return {
-            "tags":tags,
-            "photos":photos,
-            "count":len(photos)
-            }
-
-@router.post('')
-def upload_photo(name: str = Form(...),
-                tags: List[str] = Form(...),
-                photo: UploadFile = File(...)):
+def photo_by_tags(tags: List[str] = Query(...),
+                  page: int = Query(1, ge=1),
+                  limit: int = Query(20, ge=1, le=100),
+                  db: Session = Depends(get_db)):
+    offset = (page - 1) * limit
+    query = text("""
+        SELECT p.filename,
+        COUNT(tof.tag_id) as relevance_score
+        FROM photos p
+        JOIN tags_of_photos tof ON tof.photo_id = p.id
+        JOIN tags t ON tof.tag_id = t.id
+        WHERE t.name IN :tags
+        GROUP BY p.id, p.filename
+        ORDER BY relevance_score DESC, p.id
+        LIMIT :limit
+        OFFSET :offset
+    """)
+    result = db.execute(query, {'tags': tuple(tags), 'limit': limit, 'offset': offset})
     
-    if not photo.content_type or not photo.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    rows = result.fetchall()
+    photo_filenames = [row[0] for row in rows]  
     
-    if isinstance(tags, str):
-        tags = [t.strip() for t in tags.replace(";", ",").split(",") if t.strip()]
-    if isinstance(tags, (list, tuple)):
-        out = []
-        for t in tags:
-            if isinstance(t, str):
-                out.extend([p.strip() for p in t.replace(";", ",").split(",") if p.strip()])
-        tags =  out
-     
-    dir_path = "E:/Web Project/photos"
-    
-
-    orig_ext = (photo.filename or "").split(".")[-1]
-    ext = orig_ext if orig_ext and len(orig_ext) <= 6 else "jpg"
-    file_path = f"{uuid.uuid4().hex}.{ext}"
-
-    full_path = f"{dir_path}/{file_path}"
-    with open(full_path, "wb") as f:
-        f.write(photo.file.read())    
-    
-    with get_db() as cursor:
-        cursor.execute('''INSERT INTO photos (name, path)
-                        VALUES (?, ?)
-                        ''', (name, file_path))
-        photo_id = cursor.lastrowid
-            
-        for tag in tags:
-            cursor.execute("SELECT id FROM tags WHERE name = ?", (tag,))
-            tag_id = cursor.fetchone()[0]
-                
-            cursor.execute("""INSERT INTO tags_of_photo (photo_id, tag_id) VALUES (?, ?)""", (photo_id, tag_id))
-
+    return PhotosResponse(
+            tags = tags,
+            photos = photo_filenames,
+            count = len(photo_filenames))
