@@ -35,7 +35,7 @@ venv.bak/
 /alembic/versions/*
 
 # Uploads
-/Photos/*  # если это пользовательские загрузки
+Photos/*  # если это пользовательские загрузки
 !Photos/.gitkeep  # чтобы папка не удалилась
 
 # Logs
