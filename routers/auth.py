@@ -1,10 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends, Form, Body
+from fastapi import APIRouter, HTTPException, Depends, Form
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 import uuid
 from db_orm import get_db, get_current_user
 from models import User, UserSession
-from schemas import UserAccountData
 from passlib.context import CryptContext
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])

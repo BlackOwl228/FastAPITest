@@ -1,9 +1,9 @@
-from fastapi import APIRouter, UploadFile, HTTPException, Form, File, Depends, Query, Path
+from fastapi import APIRouter, UploadFile, HTTPException, Form, File, Depends, Path
 from sqlalchemy.orm import Session
-from typing import List, Optional
-import uuid, datetime, os
+from typing import List
+import uuid, os
 from db_orm import get_db, get_current_user
-from models import Tag, Photo, UserSession, Album
+from models import Tag, Photo, UserSession
 
 router = APIRouter(tags=["Private"])
 
@@ -92,7 +92,7 @@ def delete_photo(photo_id: int = Path(...),
     Photo.id == photo_id,
     Photo.creator_id == current_user.user_id).first()
 
-    if photo:
+    if not photo:
         raise HTTPException(404, "You can't delete this file")
     
     file_path = f"E:/MyProject/MySite/Photos/{photo.filename}"

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Path, Form
+from fastapi import APIRouter, HTTPException, Depends, Path
 from sqlalchemy.orm import Session
 from models import User, Photo, UserSession
 from db_orm import get_db, get_admin
